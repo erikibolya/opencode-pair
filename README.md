@@ -1,6 +1,7 @@
 # opencode-pair
 
-[![build](https://github.com/erikibolya/opencode-pair/actions/workflows/build.yml/badge.svg)](https://github.com/erikibolya/opencode-pair/actions/workflows/build.yml)
+[![ci](https://github.com/erikibolya/opencode-pair/actions/workflows/ci.yml/badge.svg)](https://github.com/erikibolya/opencode-pair/actions/workflows/ci.yml)
+[![codeql](https://github.com/erikibolya/opencode-pair/actions/workflows/codeql.yml/badge.svg)](https://github.com/erikibolya/opencode-pair/actions/workflows/codeql.yml)
 [![ghcr](https://img.shields.io/badge/ghcr.io-opencode--pair-blue)](https://github.com/erikibolya/opencode-pair/pkgs/container/opencode-pair)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -18,7 +19,10 @@ A tiny web page that displays a **pairing QR code for a self-hosted [OpenCode](h
 - Countdown, auto-refresh, and a **New code** button
 - Permanent section with the server address, password and a QR code of the address
 - Zero JavaScript dependencies, no database, no state on disk
-- Single small image (`python:3.12-alpine`), runs as non-root
+- Single small image (`python:3.12-alpine`), runs as non-root with a healthcheck
+- Hardened responses: strict CSP, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, `noindex`
+- Optionally hides the password from the page (`HIDE_PASSWORD`), so only the QR code is shown
+- Linted and type-checked in CI (ruff, mypy), CodeQL and Dependabot enabled
 
 ## Requirements
 
@@ -77,6 +81,7 @@ docker run -d --name opencode-pair -p 8099:8080 \
 | `OPENCODE_USERNAME` | `opencode` | Basic auth user name, in case a fork changes it. |
 | `PORT` | `8080` | Port the page listens on inside the container. |
 | `PAGE_TITLE` | `OpenCode - párování` | Page heading. |
+| `HIDE_PASSWORD` | *(off)* | Set to `1`/`true` to hide the server password on the page and show only the QR codes. |
 
 ## How it works
 
@@ -103,10 +108,13 @@ OPENCODE_API=http://127.0.0.1:4096 OPENCODE_PUBLIC_URL=http://localhost:8080 \
 OPENCODE_PASSWORD=secret python app/main.py
 ```
 
-Tests (no extra dependencies):
+Tests, lint and types (no extra runtime dependencies beyond `requirements.txt`):
 
 ```bash
 python -m unittest discover -s tests -v
+pip install ruff mypy
+ruff check . && ruff format --check .
+mypy
 ```
 
 Build the image locally:

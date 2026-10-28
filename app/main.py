@@ -12,9 +12,12 @@ import base64
 import html
 import json
 import os
+import signal
+import threading
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any, Protocol
 
 import qrcode
 
@@ -24,6 +27,19 @@ PASSWORD = os.environ.get("OPENCODE_PASSWORD", "")
 USERNAME = os.environ.get("OPENCODE_USERNAME", "opencode")
 PORT = int(os.environ.get("PORT", "8080"))
 TITLE = os.environ.get("PAGE_TITLE", "OpenCode - párování")
+HIDE_PASSWORD = os.environ.get("HIDE_PASSWORD", "").strip().lower() in {"1", "true", "yes", "on"}
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "X-Robots-Tag": "noindex, nofollow, noarchive",
+    "Content-Security-Policy": (
+        "default-src 'none'; img-src data:; style-src 'unsafe-inline'; "
+        "script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    ),
+}
+
 
 def create_code() -> tuple[str, int]:
     """Ask the OpenCode server for a fresh one-time pairing code."""
@@ -43,18 +59,13 @@ def qr_svg(data: str) -> str:
     qr.make(fit=True)
     matrix = qr.get_matrix()
     size = len(matrix)
-    path = "".join(
-        "M%d %dh1v1h-1z" % (x, y)
-        for y, row in enumerate(matrix)
-        for x, dark in enumerate(row)
-        if dark
-    )
+    path = "".join(f"M{x} {y}h1v1h-1z" for y, row in enumerate(matrix) for x, dark in enumerate(row) if dark)
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" '
         'shape-rendering="crispEdges" role="img" aria-label="QR code">'
-        '<rect width="%d" height="%d" fill="#fff"/>'
-        '<path d="%s" fill="#000"/></svg>'
-    ) % (size, size, size, size, path)
+        f'<rect width="{size}" height="{size}" fill="#fff"/>'
+        f'<path d="{path}" fill="#000"/></svg>'
+    )
 
 
 PAGE = """<!doctype html>
@@ -130,10 +141,7 @@ PAGE = """<!doctype html>
           <button onclick="copy('url', this)">Kopírovat</button>
         </div>
         <div class="muted">Heslo</div>
-        <div class="val">
-          <code id="pw">{password}</code>
-          <button onclick="copy('pw', this)">Kopírovat</button>
-        </div>
+        {password_row}
         <div class="muted">Basic auth user: <code style="display:inline;padding:2px 6px">{username}</code></div>
       </div>
     </div>
@@ -183,36 +191,55 @@ PAGE = """<!doctype html>
 """
 
 
+def password_row() -> str:
+    if HIDE_PASSWORD:
+        return '<div class="val"><code id="pw">heslo je skryté (HIDE_PASSWORD)</code></div>'
+    return (
+        f'<div class="val"><code id="pw">{html.escape(PASSWORD)}</code>'
+        "<button onclick=\"copy('pw', this)\">Kopírovat</button></div>"
+    )
+
+
 def build_page(public: str, code: str, expires: int, error: str = "") -> str:
-    link = "%s/auth/connect/%s" % (public, code) if code else ""
+    link = f"{public}/auth/connect/{code}" if code else ""
     return PAGE.format(
         title=html.escape(TITLE),
         public=html.escape(public),
         link=html.escape(link),
         qr=qr_svg(link) if link else qr_svg(public),
         qr_url=qr_svg(public),
-        password=html.escape(PASSWORD),
+        password_row=password_row(),
         username=html.escape(USERNAME),
         expires=expires,
         error=error,
     )
 
 
-def request_public_url(handler: "Handler") -> str:
+class HeadersLike(Protocol):
+    """Anything carrying HTTP headers, so tests can pass a plain object."""
+
+    headers: Any
+
+
+def request_public_url(handler: HeadersLike) -> str:
     if PUBLIC_URL:
         return PUBLIC_URL
     proto = handler.headers.get("X-Forwarded-Proto", "http").split(",")[0].strip()
     host = handler.headers.get("X-Forwarded-Host") or handler.headers.get("Host") or "localhost"
-    return "%s://%s" % (proto, host)
+    return f"{proto}://{host}"
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "opencode-pair"
     protocol_version = "HTTP/1.1"
 
-    def do_GET(self) -> None:  # noqa: N802 - http.server API
+    def do_GET(self) -> None:
         if self.path == "/healthz":
             self._send(200, "text/plain; charset=utf-8", b"ok")
+            return
+
+        if self.path == "/robots.txt":
+            self._send(200, "text/plain; charset=utf-8", b"User-agent: *\nDisallow: /\n")
             return
 
         if self.path.startswith("/new"):
@@ -220,6 +247,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", "0")
+            self._security_headers()
             self.end_headers()
             return
 
@@ -234,13 +262,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             code, expires = create_code()
         except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
-            error = '<div class="err">Nepodařilo se vytvořit párovací kód: %s</div>' % html.escape(
-                str(exc)
-            )
+            error = f'<div class="err">Nepodařilo se vytvořit párovací kód: {html.escape(str(exc))}</div>'
         self._send(200, "text/html; charset=utf-8", build_page(public, code, expires, error).encode())
+
+    def _security_headers(self) -> None:
+        for name, value in SECURITY_HEADERS.items():
+            self.send_header(name, value)
 
     def _send(self, status: int, content_type: str, body: bytes) -> None:
         self.send_response(status)
+        self._security_headers()
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
@@ -248,12 +279,22 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, fmt: str, *args: object) -> None:
-        print("%s - %s" % (self.address_string(), fmt % args), flush=True)
+        print(f"{self.address_string()} - {fmt % args}", flush=True)
 
 
 def main() -> None:
-    print("opencode-pair on :%d (api=%s public=%s)" % (PORT, API_URL, PUBLIC_URL or "auto"), flush=True)
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    print(
+        f"opencode-pair on :{PORT} (api={API_URL} public={PUBLIC_URL or 'auto'} hide_password={HIDE_PASSWORD})",
+        flush=True,
+    )
+
+    def _shutdown(signum: int, frame: object) -> None:
+        print("shutting down", flush=True)
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    server.serve_forever()
 
 
 if __name__ == "__main__":
