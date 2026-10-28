@@ -1,0 +1,31 @@
+services:
+  opencode-pair:
+    image: ghcr.io/erikibolya/opencode-pair:latest
+    container_name: opencode-pair
+    restart: unless-stopped
+    ports:
+      - "8099:8080"
+    environment:
+      # Where the OpenCode server is reachable from this container.
+      OPENCODE_API: http://opencode:4096
+      # Public address of the OpenCode server, used in the pairing links.
+      OPENCODE_PUBLIC_URL: https://opencode.example.com
+      # Password of the OpenCode server (Basic auth, user "opencode").
+      OPENCODE_PASSWORD: "${OPENCODE_PASSWORD:?set OPENCODE_PASSWORD in .env}"
+    networks:
+      - opencode
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_network"
+      - "traefik.http.routers.opencode-pair.rule=Host(`pair.example.com`)"
+      - "traefik.http.routers.opencode-pair.entrypoints=websecure"
+      - "traefik.http.routers.opencode-pair.tls=true"
+      - "traefik.http.routers.opencode-pair.tls.certresolver=le"
+      - "traefik.http.routers.opencode-pair.middlewares=opencode-pair-auth"
+      # The page reveals the server password, so it must not be public.
+      - "traefik.http.middlewares.opencode-pair-auth.basicauth.users=${PAIR_AUTH:?set PAIR_AUTH in .env}"
+
+networks:
+  opencode:
+    external: true
+    name: traefik_network
