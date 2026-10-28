@@ -49,7 +49,9 @@ networks:
 ```
 
 ```bash
-echo "OPENCODE_PASSWORD=your-server-password" > .env
+cp compose.example.yaml compose.yaml
+cp .env.example .env
+# fill in OPENCODE_PASSWORD (and PAIR_AUTH if you enabled the basicauth middleware)
 docker compose up -d
 ```
 
@@ -89,7 +91,7 @@ Codes are single use and expire after 5 minutes; each page load asks for a fresh
 **The page displays the OpenCode server password in plain text.** Anyone who can open the page can control the server (sessions, shell commands, files). Treat the page as a secret:
 
 - keep it on a private network (LAN, VPN) or
-- put it behind HTTP Basic auth / SSO. `compose.example.yaml` shows a Traefik `basicauth` middleware; generate the hash with `htpasswd -nbB user password` (remember to escape `$` as `$$` in compose labels).
+- put it behind HTTP Basic auth / SSO. `compose.example.yaml` shows a Traefik `basicauth` middleware; generate the hash with `htpasswd -nbB user password` and put it in `.env` as `PAIR_AUTH`, escaping every `$` as `$$` (see `.env.example`).
 - The pairing link itself is a bearer credential too - it is one-time and expires quickly, but do not post screenshots of it.
 
 ## Development
