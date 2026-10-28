@@ -9,3 +9,5 @@ LICENSE
 **/__pycache__
 **/*.pyc
 *.md
+scripts
+pyproject.toml
