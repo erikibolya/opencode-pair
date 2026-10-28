@@ -1,5 +1,9 @@
 # opencode-pair
 
+[![build](https://github.com/erikibolya/opencode-pair/actions/workflows/build.yml/badge.svg)](https://github.com/erikibolya/opencode-pair/actions/workflows/build.yml)
+[![ghcr](https://img.shields.io/badge/ghcr.io-opencode--pair-blue)](https://github.com/erikibolya/opencode-pair/pkgs/container/opencode-pair)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 A tiny web page that displays a **pairing QR code for a self-hosted [OpenCode](https://opencode.ai) server**, so you can pair the mobile/desktop app from a phone without touching a terminal.
 
 `opencode pair` prints a QR code into the terminal, which is useless when the server runs in Docker on a headless box. This container wraps the same flow into a page you can open from any browser: it asks the running OpenCode server for a one-time pairing code, renders it as a QR code, and shows the permanent server address and password next to it.
