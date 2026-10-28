@@ -232,6 +232,12 @@ def request_public_url(handler: HeadersLike) -> str:
 class Handler(BaseHTTPRequestHandler):
     server_version = "opencode-pair"
     protocol_version = "HTTP/1.1"
+    head_only = False
+
+    def do_HEAD(self) -> None:
+        """Answer HEAD like GET, without the body (uptime monitors use it)."""
+        self.head_only = True
+        self.do_GET()
 
     def do_GET(self) -> None:
         if self.path == "/healthz":
@@ -276,7 +282,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        if not self.head_only:
+            self.wfile.write(body)
 
     def log_message(self, fmt: str, *args: object) -> None:
         print(f"{self.address_string()} - {fmt % args}", flush=True)

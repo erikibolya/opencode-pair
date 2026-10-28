@@ -191,6 +191,21 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         self.assertIn(b"boom", body)
 
+    def head(self, path):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request("HEAD", path)
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        return resp, body
+
+    def test_head_is_supported(self):
+        resp, body = self.head("/healthz")
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.getheader("Content-Length"), "2")
+        self.assertEqual(body, b"")
+        self.assertEqual(resp.getheader("X-Frame-Options"), "DENY")
+
     def test_new_redirects(self):
         resp, _ = self.get("/new")
         self.assertEqual(resp.status, 303)
