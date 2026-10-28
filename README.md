@@ -16,7 +16,6 @@ A tiny web page that displays a **pairing QR code for a self-hosted [OpenCode](h
 
 - Fresh one-time pairing code (QR + link) on every page, valid for 5 minutes
 - Countdown, auto-refresh, and a **New code** button
-- The current code is reused until ~25 s before it expires, so reloading the page does not burn codes you just scanned
 - Permanent section with the server address, password and a QR code of the address
 - Zero JavaScript dependencies, no database, no state on disk
 - Single small image (`python:3.12-alpine`), runs as non-root
@@ -83,7 +82,7 @@ docker run -d --name opencode-pair -p 8099:8080 \
 2. The page builds `{OPENCODE_PUBLIC_URL}/auth/connect/{code}` and encodes it as an inline SVG QR code.
 3. The app scans the QR (or the link is pasted into its server address field), redeems the one-time code and gets a session cookie that lasts 30 days.
 
-Codes are single use and expire after 5 minutes; the page refreshes itself when the timer runs out.
+Codes are single use and expire after 5 minutes; each page load asks for a fresh one and the page refreshes itself when the timer runs out.
 
 ## Security
 

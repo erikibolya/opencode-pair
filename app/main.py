@@ -12,8 +12,6 @@ import base64
 import html
 import json
 import os
-import threading
-import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,14 +25,6 @@ USERNAME = os.environ.get("OPENCODE_USERNAME", "opencode")
 PORT = int(os.environ.get("PORT", "8080"))
 TITLE = os.environ.get("PAGE_TITLE", "OpenCode - párování")
 
-# A pairing code is consumed by the client that redeems it, so keep serving the
-# same one until it is about to expire instead of burning a new code per reload.
-REUSE_WINDOW = 25.0
-
-_lock = threading.Lock()
-_current: dict[str, object] = {"code": None, "expires_at": 0.0}
-
-
 def create_code() -> tuple[str, int]:
     """Ask the OpenCode server for a fresh one-time pairing code."""
     req = urllib.request.Request(API_URL + "/api/pair", method="POST")
@@ -44,19 +34,6 @@ def create_code() -> tuple[str, int]:
     with urllib.request.urlopen(req, timeout=10) as resp:
         data = json.load(resp)
     return str(data["code"]), int(data.get("expires_in", 300))
-
-
-def get_code(force: bool = False) -> tuple[str, int]:
-    """Return ``(code, seconds_left)``, reusing the current code while it lasts."""
-    with _lock:
-        now = time.monotonic()
-        code = _current["code"]
-        if not force and code and float(_current["expires_at"]) - now > REUSE_WINDOW:
-            return str(code), int(float(_current["expires_at"]) - now)
-        code, ttl = create_code()
-        _current["code"] = code
-        _current["expires_at"] = now + ttl
-        return code, ttl
 
 
 def qr_svg(data: str) -> str:
@@ -239,10 +216,6 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/new"):
-            try:
-                get_code(force=True)
-            except (urllib.error.URLError, OSError, ValueError, KeyError):
-                pass
             self.send_response(303)
             self.send_header("Location", "/")
             self.send_header("Cache-Control", "no-store")
@@ -259,7 +232,7 @@ class Handler(BaseHTTPRequestHandler):
         expires = 300
         error = ""
         try:
-            code, expires = get_code()
+            code, expires = create_code()
         except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
             error = '<div class="err">Nepodařilo se vytvořit párovací kód: %s</div>' % html.escape(
                 str(exc)

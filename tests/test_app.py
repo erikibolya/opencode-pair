@@ -46,29 +46,50 @@ class PageTests(unittest.TestCase):
         self.assertIn("https://pair.example.com", page)
 
 
-class CodeCacheTests(unittest.TestCase):
-    def setUp(self):
-        main._current.update(code=None, expires_at=0.0)
+class FakeResponse:
+    def __init__(self, payload):
+        self.payload = payload
 
-    def test_reuses_code_until_it_gets_old(self):
-        with mock.patch.object(main, "create_code", return_value=("AAA", 300)) as create:
-            self.assertEqual(main.get_code()[0], "AAA")
-            self.assertEqual(main.get_code()[0], "AAA")
-            self.assertEqual(create.call_count, 1)
+    def __enter__(self):
+        return self
 
-    def test_force_creates_new_code(self):
-        with mock.patch.object(main, "create_code", side_effect=[("C1", 300), ("C2", 300)]) as create:
-            self.assertEqual(main.get_code()[0], "C1")
-            self.assertEqual(main.get_code()[0], "C1")
-            self.assertEqual(main.get_code(force=True)[0], "C2")
-            self.assertEqual(create.call_count, 2)
+    def __exit__(self, *exc):
+        return False
 
-    def test_expired_code_is_replaced(self):
-        with mock.patch.object(main, "create_code", return_value=("OLD", 5)):
-            main.get_code()
-            code, left = main.get_code()
-            self.assertEqual(code, "OLD")
-            self.assertLessEqual(left, 5)
+    def read(self):
+        return self.payload
+
+
+class CreateCodeTests(unittest.TestCase):
+    def _capture(self, payload=b'{"code":"C1","expires_in":300}'):
+        captured = {}
+
+        def fake_urlopen(req, timeout=0):
+            captured["method"] = req.get_method()
+            captured["url"] = req.full_url
+            captured["auth"] = req.get_header("Authorization")
+            return FakeResponse(payload)
+
+        return captured, fake_urlopen
+
+    def test_posts_with_basic_auth(self):
+        captured, fake = self._capture()
+        with mock.patch.object(main, "PASSWORD", "secret"), mock.patch.object(
+            main.urllib.request, "urlopen", fake
+        ):
+            code, ttl = main.create_code()
+        self.assertEqual((code, ttl), ("C1", 300))
+        self.assertEqual(captured["method"], "POST")
+        self.assertTrue(captured["url"].endswith("/api/pair"))
+        self.assertTrue(captured["auth"].startswith("Basic "))
+
+    def test_skips_auth_header_without_password(self):
+        captured, fake = self._capture()
+        with mock.patch.object(main, "PASSWORD", ""), mock.patch.object(
+            main.urllib.request, "urlopen", fake
+        ):
+            main.create_code()
+        self.assertIsNone(captured["auth"])
 
 
 class PublicUrlTests(unittest.TestCase):
